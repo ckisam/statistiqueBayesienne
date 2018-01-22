@@ -59,112 +59,6 @@ genPitmanYor <- function(n, d, theta, genPrior) {
 
 ######################################################################
 ##### GENERATION HIERARCHICAL CHINESE RESTAURANT PROCESS
-##### ----- 1ere implementation, un peu complexe
-
-naiveVoc <-
-  c(
-    "lapin",
-    "gateau",
-    "bijou",
-    "caillou",
-    "vivre",
-    "fermier",
-    "prairie",
-    "porte",
-    "stylo",
-    "vague",
-    "morale",
-    "coiffeur",
-    "metro",
-    "biere",
-    "tennis",
-    "uniforme"
-  )
-
-getIndex <- function(word, voc = naiveVoc) {
-  return(match(word, voc))
-}
-
-initChineseRestaurant <-
-  function(depth = 3,
-           d = rep(1, depth),
-           theta = rep(1, depth),
-           voc = naiveVoc) {
-    context <<-
-      list(empty = initChineseRestaurantRec(depth, voc),
-           d = d,
-           theta = theta)
-  }
-
-initChineseRestaurantRec <-
-  function(depth = 3,
-           voc = naiveVoc) {
-    res <-
-      list(tableList = c(),
-           custList = c())
-    if (depth > 1) {
-      res$sub <-
-        lapply(1:length(voc), function(i) {
-          return(initChineseRestaurantRec(depth - 1, voc))
-        })
-    }
-    return(res)
-  }
-initChineseRestaurant()
-print(context)
-
-getProbaContext <- function(u = c(), context = context) {
-  infoContext <- context$empty
-  for (w in u) {
-    infoContext <- infoContext$sub[[w]]
-  }
-  d <- context$d[1 + length(u)]
-  theta <- context$theta[1 + length(u)]
-  constNorm <- theta + sum(infoContext$custList)
-  res <- list()
-  res$existing <-
-    (infoContext$custList - d * infoContext$tableList) / constNorm
-  res$new <-  (theta + d * (sum(infoContext$tableList))) / constNorm
-  return(res)
-}
-
-incrementCustomer <- function(u = c(), k, context = context) {
-  context$empty <<- incrementCustomerRec(u, k, context$empty)
-}
-
-incrementCustomerRec <- function(u = c(),
-                                 k,
-                                 context = context$empty) {
-  if (lentgh(u) == 0) {
-    context$custList[k] <- context$custList[k] + 1
-    return(context)
-  } else{
-    return(incrementCustomerRec(u[-1], k, context[[u[1]]]))
-  }
-}
-
-drawWord_1 <-
-  function(u = c(),
-           d = naiveD,
-           theta = naiveTheta,
-           voc = naiveVoc) {
-    contextSize <- length(u)
-    if (contextSize == 0) {
-      # Du mal avec cette etape : le contexte vide n'est pas Pitman ?
-      index <- sample(1:length(voc), 1)
-      return(voc[index])
-    }
-    proba <- getProbaContext(u)
-    if (rbinom(1, 1, proba$new) == 1) {
-      # Nouveau tirage
-      word <- drawWord_1(u[-1])
-    } else{
-      # Ancien tirage
-    }
-  }
-
-######################################################################
-##### GENERATION HIERARCHICAL CHINESE RESTAURANT PROCESS
 ##### ----- 2nde implementation, moins structuree
 
 naiveVoc <-
@@ -207,7 +101,7 @@ getKeyByContext <- function(u = c()) {
 
 initChineseRestaurant <-
   function(depth = 3,
-           d = rep(1, depth),
+           d = rep(.5, depth),
            theta = rep(1, depth),
            voc = naiveVoc) {
     info_ <<-
@@ -218,19 +112,16 @@ initChineseRestaurant <-
            )))
   }
 
-
 getProbaContext <- function(u = c()) {
   key <- getKeyByContext(u)
   d <- info_$d[1 + length(u)]
   theta <- info_$theta[1 + length(u)]
-  tableList <- info_$context[[key]]$tableList
   custList <- info_$context[[key]]$custList
   constNorm <- theta + sum(custList)
-  #print(constNorm)
   res <- list()
   res$existing <-
-    (custList - d * tableList) / constNorm
-  res$new <-  (theta + d * (sum(tableList))) / constNorm
+    (custList - d) / constNorm
+  res$new <-  (theta + d * (length(custList))) / constNorm
   return(res)
 }
 
@@ -238,31 +129,113 @@ drawWord <-
   function(u = c(),
            voc = naiveVoc) {
     key <- getKeyByContext(u)
+    custList <- info_$context[[key]]$custList
+    tableList <- info_$context[[key]]$tableList
     proba <- getProbaContext(u)
     if (rbinom(1, 1, proba$new) == 1) {
       # Nouveau tirage
       if (length(u) == 0) {
         word <- sample(1:length(voc), 1)
       } else{
-        word <- drawWord_1(u[-1])
+        word <- drawWord(u[-1])
       }
-      info_$context$empty$tableList <<-
-        append(info_$context$empty$tableList, word)
-      info_$context$empty$custList <<-
-        append(info_$context$empty$custList, 1)
+      tableList <-
+        append(tableList, word)
+      custList <-
+        append(custList, 1)
     } else{
       # Ancien tirage
-      custList <- info_$context[[key]]$custList
-      tableList <- info_$context[[key]]$tableList
-      k <- sample(1:length(tableList), 1, proba$existing)
+      k <-
+        sample(
+          x = 1:length(tableList),
+          size = 1,
+          prob = proba$existing
+        )
       word <- tableList[k]
       custList[k] <- custList[k] + 1
-      info_$context[[key]]$custList <<- custList
     }
+    info_$context[[key]]$custList <<- custList
+    info_$context[[key]]$tableList <<- tableList
     return(word)
   }
 
-initChineseRestaurant()
-print(info_)
-drawWord()
-drawWord()
+wordProbability <- function(u = c(), w, voc = naiveVoc) {
+  key <- getKeyByContext(u)
+  tableList <- info_$context[[key]]$tableList
+  custList <- info_$context[[key]]$custList
+  c <- sum(custList[tableList == w])
+  t <- length(tableList[tableList == w])
+  d <- info_$d[1 + length(u)]
+  theta <- info_$theta[1 + length(u)]
+  constNorm <- sum(custList) + theta
+  res <- (c - d * t) / constNorm
+  if (key == "empty") {
+    previousPrev <- 1 / length(voc)
+  } else{
+    previousPrev <- wordProbability(u[-1], w, voc)
+  }
+  res <-
+    res + ((theta + d * length(tableList)) / constNorm) * previousPrev
+  return(res)
+}
+
+addCustomer <- function(u = c(), w, voc = naiveVoc) {
+  key <- getKeyByContext(u)
+  tableList <- info_$context[[key]]$tableList
+  custList <- info_$context[[key]]$custList
+  goodTable <- tableList == w
+  d <- info_$d[1 + length(u)]
+  theta <- info_$theta[1 + length(u)]
+  if (key == "empty") {
+    previousProba <- 1 / length(voc)
+  } else{
+    previousProba <- wordProbability(u[-1], w)
+  }
+  proba <-
+    c(max(0, custList * goodTable - d),
+      (theta + d * length(tableList)) * previousProba)
+  proba <- proba / sum(proba)
+  case <- sample(x = 1:length(proba),
+                 size = 1,
+                 prob = proba)
+  if (case == length(proba)) {
+    # Nouvelle table
+    tableList <- append(tableList, w)
+    custList <- append(custList, 1)
+    if (key != "empty") {
+      addCustomer(u[-1], w, voc)
+    }
+  } else{
+    # Ancienne table
+    custList[case] <- custList[case] + 1
+  }
+  info_$context[[key]]$tableList <<- tableList
+  info_$context[[key]]$custList <<- custList
+}
+
+removeCustomer <- function(u = c(), w, voc = naiveVoc) {
+  key <- getKeyByContext(u)
+  tableList <- info_$context[[key]]$tableList
+  custList <- info_$context[[key]]$custList
+  goodTable <- tableList == w
+  proba <- custList * goodTable
+  case <- sample(x = 1:length(proba),
+                 size = 1,
+                 prob = proba)
+  custList[case] <- custList[case] - 1
+  if (custList[case] == 0) {
+    # Cas ou la table se vide
+    custList <- custList[-case]
+    tableList <- tableList[-case]
+    if (key != "empty") {
+      # On supprime pour le contexte suffixe si non vide
+      removeCustomer(u[-1], w, voc)
+    }
+  }
+  info_$context[[key]]$tableList <<- tableList
+  info_$context[[key]]$custList <<- custList
+}
+
+updateDiscount <- function(depth = 0, voc = naiveVoc) {
+  
+}

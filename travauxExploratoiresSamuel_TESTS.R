@@ -45,3 +45,26 @@ for (d in dList) {
                   ""))
   }
 }
+
+##################################################
+##### INFERENCE BAYESIENNE
+
+### Test de la structure
+
+initChineseRestaurant()
+print(info_)
+for (i in 1:10) {
+  drawWord()
+}
+print(info_)
+
+### Add et Remove
+
+
+
+
+
+
+
+
+
