@@ -236,6 +236,22 @@ removeCustomer <- function(u = c(), w, voc = naiveVoc) {
   info_$context[[key]]$custList <<- custList
 }
 
-updateDiscount <- function(depth = 0, voc = naiveVoc) {
+updateDiscount <- function(depth = 0, prior=c(1,1),voc = naiveVoc) {
+  theta <- info_$theta[depth+1]
+  d <- info_$d[depth+1]
+  lapply(names(info_$context),function(key){
+    context <- getContextByKey(key)
+    if(length(context)!=depth){
+      return(0)
+    }else{
+      y <- do.call(c,lapply(1:(length(info_$context[[key]]$tableList)-1)),function(i){
+        proba <- theta/(theta+d*i)
+        return(rbinom(1,1,proba))
+      })
+      return(sum(1-y))
+    }
+  })
   
 }
+
+
