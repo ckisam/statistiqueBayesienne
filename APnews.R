@@ -1,7 +1,8 @@
 library(quanteda) # Facilite le traitement de données textuelles.
 library(tidyr) # Séparation des bigrams dans les dataframe; pas élégant...
 
-data <- readLines("C:/Users/Guillaume/Desktop/apnews/apnews.dat", n=100) # Sous-échantillon
+#data <- readLines("C:/Users/Guillaume/Desktop/apnews/apnews.dat", n=100) # Sous-échantillon
+data <- readLines("D:/ENSAE/3A/STATISTIQUE BAYESIENNE/apnews/apnews.dat", n=100) # Sous-échantillon
 
 unigram <- dfm(data, remove = stopwords("english"), remove_punct = TRUE) 
   # Traitement du texte (ponctuations, etc...) et comptage des mots

@@ -5,8 +5,10 @@
 ######################################################################
 
 rm(list = ls())
+# wd <-
+#   "C:/Users/Samuel/Documents/ENSAE - Stat Bayes/statistiqueBayesienne"
 wd <-
-  "C:/Users/Samuel/Documents/ENSAE - Stat Bayes/statistiqueBayesienne"
+  "/home/samuel/Documents/statistiqueBayesienne"
 setwd(wd)
 getwd()
 
@@ -179,11 +181,18 @@ wordProbability <- function(u = c(), w, voc = naiveVoc) {
   return(res)
 }
 
+### Ajoute un consommateur
+### - u : contexte, vecteur d'entier (= index du mot dans le dico)
+### - w : mot a ajouter
+### - voc : dictionnaire
 addCustomer <- function(u = c(), w, voc = naiveVoc) {
   key <- getKeyByContext(u)
   tableList <- info_$context[[key]]$tableList
   custList <- info_$context[[key]]$custList
   goodTable <- tableList == w
+  if(length(custList)!=length(tableList)){
+    print("Attention !!")
+  }
   d <- info_$d[1 + length(u)]
   theta <- info_$theta[1 + length(u)]
   if (key == "empty") {
@@ -192,7 +201,7 @@ addCustomer <- function(u = c(), w, voc = naiveVoc) {
     previousProba <- wordProbability(u[-1], w)
   }
   proba <-
-    c(max(0, custList * goodTable - d),
+    c(pmax(0, custList * goodTable - d),
       (theta + d * length(tableList)) * previousProba)
   proba <- proba / sum(proba)
   case <- sample(x = 1:length(proba),
@@ -200,8 +209,8 @@ addCustomer <- function(u = c(), w, voc = naiveVoc) {
                  prob = proba)
   if (case == length(proba)) {
     # Nouvelle table
-    tableList <- append(tableList, w)
-    custList <- append(custList, 1)
+    tableList <- c(tableList, w)
+    custList <- c(custList, 1)
     if (key != "empty") {
       addCustomer(u[-1], w, voc)
     }
@@ -219,6 +228,12 @@ removeCustomer <- function(u = c(), w, voc = naiveVoc) {
   custList <- info_$context[[key]]$custList
   goodTable <- tableList == w
   proba <- custList * goodTable
+  if (sum(proba) == 0) {
+    print(u)
+    print(w)
+    print(info_$context[[key]])
+    print(proba)
+  }
   case <- sample(x = 1:length(proba),
                  size = 1,
                  prob = proba)
@@ -236,22 +251,119 @@ removeCustomer <- function(u = c(), w, voc = naiveVoc) {
   info_$context[[key]]$custList <<- custList
 }
 
-updateDiscount <- function(depth = 0, prior=c(1,1),voc = naiveVoc) {
-  theta <- info_$theta[depth+1]
-  d <- info_$d[depth+1]
-  lapply(names(info_$context),function(key){
-    context <- getContextByKey(key)
-    if(length(context)!=depth){
-      return(0)
-    }else{
-      y <- do.call(c,lapply(1:(length(info_$context[[key]]$tableList)-1)),function(i){
-        proba <- theta/(theta+d*i)
-        return(rbinom(1,1,proba))
-      })
-      return(sum(1-y))
-    }
-  })
-  
+updateDiscount <- function(depth = 0,
+                           prior = c(1, 1)) {
+  theta <- info_$theta[depth + 1]
+  fullD <- info_$d
+  d <- fullD[depth + 1]
+  alpha <-
+    prior[1] + sum(do.call(c, lapply(names(info_$context), function(key) {
+      context <- getContextByKey(key)
+      t <- length(info_$context[[key]]$tableList)
+      if (length(context) != depth | t < 2) {
+        return(0)
+      }
+      y <- do.call(c, lapply(1:(t - 1), function(i) {
+        proba <- theta / (theta + d * i)
+        return(rbinom(1, 1, proba))
+      }))
+      return(sum(1 - y))
+    })))
+  beta <-
+    prior[2] + sum(do.call(c, lapply(names(info_$context), function(key) {
+      context <- getContextByKey(key)
+      custList <- info_$context[[key]]$custList
+      t <- length(custList)
+      if (length(context) != depth | t < 2) {
+        return(0)
+      }
+      return(sum(do.call(c, lapply(custList, function(cust) {
+        if (cust < 2) {
+          return(0)
+        }
+        z <- do.call(c, lapply(1:(cust - 1), function(j) {
+          proba <- (j - 1) / (j - d)
+          return(rbinom(1, 1, proba))
+        }))
+        return(sum(1 - z))
+      }))))
+    })))
+  fullD[depth + 1] <- rbeta(1, alpha, beta)
+  info_$d <<- fullD
 }
 
+updateTheta <- function(depth = 0,
+                        prior = c(1, 1)) {
+  d <- info_$d[depth + 1]
+  fullTheta <- info_$theta
+  theta <- fullTheta[depth + 1]
+  alpha <-
+    prior[1] + sum(do.call(c, lapply(names(info_$context), function(key) {
+      context <- getContextByKey(key)
+      t <- length(info_$context[[key]]$tableList)
+      if (length(context) != depth | t < 2) {
+        return(0)
+      }
+      y <- do.call(c, lapply(1:(t - 1), function(i) {
+        proba <- theta / (theta + d * i)
+        return(rbinom(1, 1, proba))
+      }))
+      return(sum(y))
+    })))
+  beta <-
+    prior[2] - sum(do.call(c, lapply(names(info_$context), function(key) {
+      context <- getContextByKey(key)
+      t <- length(info_$context[[key]]$tableList)
+      custList <- info_$context[[key]]$custList
+      if (length(context) != depth | t < 2) {
+        return(0)
+      }
+      return(log(rbeta(1, theta + 1, sum(custList - 1))))
+    })))
+  fullTheta[depth + 1] <- rgamma(1, alpha, beta)
+  info_$theta <<- fullTheta
+}
 
+gibbsSampler <- function(data, voc = naiveVoc, n) {
+  # Initialisation
+  initChineseRestaurant()
+  print("Init")
+  for (g in seq_along(data$ngrams)) {
+    u <- getContextByKey(data$ngrams[g])
+    occ <- data$freq[g]
+    for (o in 1:occ) {
+      addCustomer(u = u[-length(u)], w = u[length(u)])
+    }
+    if (g %% 1000 == 0) {
+      print(g)
+    }
+  }
+  res <- rep(0, nrow(data))
+  for (i in 1:n) {
+    print(paste("Iteration ",i,sep=""))
+    for (g in seq_along(data$ngrams)) {
+      u <- getContextByKey(data$ngrams[g])
+      occ <- data$freq[g]
+      for (o in 1:occ) {
+        removeCustomer(u = u[-length(u)], w = u[length(u)])
+        addCustomer(u = u[-length(u)], w = u[length(u)])
+      }
+      if (g %% 1000 == 0) {
+        print(g)
+      }
+    }
+    for (j in 1:length(info_$theta)) {
+      updateTheta(j - 1)
+      updateDiscount(j - 1)
+    }
+    temp <- do.call(c, lapply(data$ngrams, function(g) {
+      u <- getContextByKey(g)
+      return(wordProbability(u = u[-length(u)], w = u[length(u)]))
+    }))
+    res <- ((i-1)*res+temp)/i
+  }
+  return(res)
+}
+
+# gibbs <- gibbsSampler(data = res, n = 2)
+gibbs <- gibbsSampler(data = res[1:1000,], n = 2)
